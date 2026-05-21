@@ -15,7 +15,6 @@ on:
 
 env:
   CONFIG_FILE: "config/xg-040g-md.config"
-  # REPO_URL: https://github.com/immortalwrt/immortalwrt.git
   REPO_URL: https://github.com/openwrt/openwrt.git
   REPO_BRANCH: main
   FEEDS_CONF: feeds.conf.default-main
@@ -29,7 +28,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup environment dependencies
         env:
@@ -66,15 +65,12 @@ jobs:
         run: |
           git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" openwrt
           cd patch
-          [ -e airoha/01_leds ] && cp -f airoha/01_leds ../openwrt/target/linux/airoha/an7581/base-files/etc/board.d/01_leds
-          [ -e airoha/02_network ] && cp -f airoha/02_network ../openwrt/target/linux/airoha/an7581/base-files/etc/board.d/02_network
-          [ -e airoha/an7581.mk ] && cp -f airoha/an7581.mk ../openwrt/target/linux/airoha/image/an7581.mk
-          [ -e airoha/an7581-nokia_xg-040g-md.dts ] && cp -f airoha/an7581-nokia_xg-040g-md.dts ../openwrt/target/linux/airoha/dts/an7581-nokia_xg-040g-md.dts
-          [ -e 342-mtd-spinand-Support-fmsh.patch ] && cp -f 342-mtd-spinand-Support-fmsh.patch ../openwrt/package/boot/uboot-mediatek/patches/342-mtd-spinand-Support-fmsh.patch
-          # [ -d "airoha/patches-6.12" ] && cp -f airoha/patches-6.12/*.patch ../openwrt/target/linux/airoha/patches-6.12/
-          #[ -d "generic/pending-6.18" ] && cp -f generic/pending-6.18/*.patch ../openwrt/target/linux/generic/pending-6.18/
-          [ -d "generic/hack-6.18" ] && cp -f generic/hack-6.18/*.patch ../openwrt/target/linux/generic/hack-6.18/
-
+          [ -e airoha/01_leds ] && cp -f airoha/01_leds ../openwrt/target/linux/airoha/an7581/base-files/etc/board.d/01_leds || true
+          [ -e airoha/02_network ] && cp -f airoha/02_network ../openwrt/target/linux/airoha/an7581/base-files/etc/board.d/02_network || true
+          [ -e airoha/an7581.mk ] && cp -f airoha/an7581.mk ../openwrt/target/linux/airoha/image/an7581.mk || true
+          [ -e airoha/an7581-nokia_xg-040g-md.dts ] && cp -f airoha/an7581-nokia_xg-040g-md.dts ../openwrt/target/linux/airoha/dts/an7581-nokia_xg-040g-md.dts || true
+          [ -e 342-mtd-spinand-Support-fmsh.patch ] && cp -f 342-mtd-spinand-Support-fmsh.patch ../openwrt/package/boot/uboot-mediatek/patches/342-mtd-spinand-Support-fmsh.patch || true
+          [ -d "generic/hack-6.18" ] && cp -f generic/hack-6.18/*.patch ../openwrt/target/linux/generic/hack-6.18/ || true
 
       - name: Update & Install feeds
         working-directory: ./openwrt
@@ -84,38 +80,6 @@ jobs:
           fi
           ./scripts/feeds update -a
           ./scripts/feeds install -a -f
-          # ./scripts/feeds install \
-          #   airoha-en7581-npu-firmware \
-          #   apk \
-          #   dnsmasq \
-          #   dropbear \
-          #   firewall4 \
-          #   fstools \
-          #   ip-full \
-          #   kmod-gpio-button-hotplug \
-          #   kmod-i2c-an7581 \
-          #   kmod-leds-gpio \
-          #   kmod-phy-airoha-en8811h \
-          #   logd \
-          #   mtd \
-          #   netifd \
-          #   odhcp6c \
-          #   odhcpd-ipv6only \
-          #   ppp \
-          #   ppp-mod-pppoe \
-          #   procd \
-          #   uci \
-          #   uclient-fetch \
-          #   uboot-envtools \
-          #   ubi-utils \
-          #   urandom-seed \
-          #   urngd \
-          #   usign \
-          #   umdns \
-          #   luci \
-          #   luci-base \
-          #   luci-mod-admin-full \
-          #   luci-ssl
 
       - name: Copy configuration and defconfig
         run: |
@@ -124,7 +88,7 @@ jobs:
           [ -e .config ] && cp .config defconfig-final.config
 
       - name: Upload build config files
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: build-config
           path: |
@@ -136,7 +100,6 @@ jobs:
         working-directory: ./openwrt
         run: |
           make download -j4 V=s
-          # Remove small incomplete files <1KB
           find dl -size -1024c -delete
 
       - name: Compile OpenWrt firmware
@@ -146,7 +109,7 @@ jobs:
           if [[ "${{ inputs.log_switch }}" == "true" ]]; then
             make -j1 V=s
           else
-            make -j$(nproc)
+            make -j$(nproc) || make -j1 V=s
           fi
           DEVICE_NAME=$(grep -o 'CONFIG_TARGET.*DEVICE_[^=]*=y' .config | head -1 | sed 's/.*DEVICE_\(.*\)=y/\1/')
           if [[ -n "$DEVICE_NAME" ]]; then
@@ -157,22 +120,22 @@ jobs:
 
       - name: Prepare firmware artifacts path
         id: organize
-        if: env.UPLOAD_FIRMWARE == 'true'
+        if: env.UPLOAD_FIRMWARE == 'true' && steps.compile.outputs.status == 'success'
         run: |
           cd openwrt/bin/targets/*/*
           rm -rf packages
           echo "FIRMWARE=$PWD" >> $GITHUB_ENV
 
       - name: Upload firmware artifacts
-        uses: actions/upload-artifact@v6
-        if: env.UPLOAD_FIRMWARE == 'true'
+        uses: actions/upload-artifact@v4
+        if: env.UPLOAD_FIRMWARE == 'true' && steps.compile.outputs.status == 'success'
         with:
           name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE }}/*
 
       - name: Generate release tag and notes
         id: tag
-        if: env.UPLOAD_RELEASE == 'true'
+        if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success'
         run: |
           echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
           cat <<EOF > release.txt
@@ -187,12 +150,11 @@ jobs:
 
       - name: Publish GitHub Release
         uses: ncipollo/release-action@v1
-        if: env.UPLOAD_RELEASE == 'true'
+        if: env.UPLOAD_RELEASE == 'true' && steps.compile.outputs.status == 'success'
         with:
           tag: ${{ steps.tag.outputs.release_tag }}
           bodyFile: release.txt
-          artifacts: |
-            ${{ env.FIRMWARE }}/*
+          artifacts: "${{ env.FIRMWARE }}/*"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
